@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from '@x402/fetch';
+import { decodePaymentRequiredHeader } from '@x402/core/http';
 import { ExactHederaScheme } from '@x402/hedera/exact/client';
 import { createClientHederaSigner, PrivateKey } from '@x402/hedera';
 
@@ -13,14 +14,18 @@ if (!PAYER_ID || !PAYER_KEY) {
   process.exit(1);
 }
 
-// Instrument fetch to capture and print the 402 challenge
+// Instrument fetch to capture and print the 402 challenge.
+// Requirements live in the PAYMENT-REQUIRED header (base64 JSON), not the body.
 const loggingFetch = async (input, init) => {
   const res = await globalThis.fetch(input, init);
   if (res.status === 402) {
-    const body = await res.clone().json().catch(() => null);
-    console.log('\n── 402 Payment Required ──────────────────────────────');
-    if (body) console.log(JSON.stringify(body, null, 2));
-    console.log('──────────────────────────────────────────────────────\n');
+    const header = res.headers.get('PAYMENT-REQUIRED');
+    if (header) {
+      const requirements = decodePaymentRequiredHeader(header);
+      console.log('\n── 402 Payment Required ──────────────────────────────');
+      console.log(JSON.stringify(requirements, null, 2));
+      console.log('──────────────────────────────────────────────────────\n');
+    }
   }
   return res;
 };
@@ -31,8 +36,15 @@ const signer = createClientHederaSigner(
   { network: `hedera:${NETWORK}` },
 );
 
+// HBAR (0.0.0) is not in @x402/hedera DEFAULT_ASSETS (only USDC is).
+// Declare it explicitly so spendControls allows it.
+// maxAmountPerPayment omitted → no per-asset cap; falls back to top-level
+// maxAmountPerPayment default ($1) which doesn't apply to non-default assets.
 const client = new x402Client()
-  .register(`hedera:${NETWORK}`, new ExactHederaScheme(signer));
+  .register(`hedera:${NETWORK}`, new ExactHederaScheme(signer))
+  .setSpendControls({
+    allowedAssets: [{ asset: '0.0.0', network: `hedera:${NETWORK}` }],
+  });
 
 const paidFetch = wrapFetchWithPayment(loggingFetch, client);
 
