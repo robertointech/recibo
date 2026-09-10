@@ -111,6 +111,17 @@ curl https://x402.org/facilitator/supported
 
 **Para Recibo en hackathon:** usar `api.testnet.blocky402.com` como facilitador primario para testnet. No necesita nada más.
 
+### Hallazgo clave — gas sponsorship por el facilitador
+
+Confirmado en producción (tx `0.0.7162784@1788998786.365152317`, HashScan testnet, 2026-09-09 19:06:37):
+
+- El `feePayer` en el 402 challenge es `0.0.7162784` — cuenta de Blocky402, no del agente pagador.
+- HashScan confirma que `0.0.7162784` pagó el fee de la tx (0.00263635 HBAR).
+- El agente (`0.0.10448866`) firmó la transferencia de HBAR al receiver pero **no necesitó HBAR propio para gas**.
+- El facilitador patrocina el gas de la transacción de liquidación.
+
+**Implicación para Recibo:** un agente puede pagar servicios en HBAR sin mantener un saldo de gas. El modelo de costos es solo el monto del servicio, sin overhead de fee management. Punto fuerte para el track de Hedera y para el video del demo.
+
 ---
 
 ## 3. PoC de Hedera — `x402-inference-pay-per-request-poc`
@@ -250,6 +261,25 @@ Crear 1 topic al arrancar el servidor. Cada evento de escrow (creado, verificado
 facilitator testnet: https://api.testnet.blocky402.com
 ```
 
-### Próximo paso (esperando instrucciones):
-Crear cuentas Hedera ECDSA en portal.hedera.com (2 cuentas: payer + receiver).
-Tarda 5 minutos. Sin eso, no se puede correr ningún test real.
+### Primer pago confirmado en testnet:
+- Tx: `0.0.7162784@1788998786.365152317`
+- HashScan: https://hashscan.io/testnet/transaction/0.0.7162784@1788998786.365152317
+- Status: SUCCESS, consenso 2026-09-09 19:06:37 EDT
+
+---
+
+## Deuda técnica
+
+### 1. allowedAssets sin cap de monto
+
+`spendControls.allowedAssets` declara qué activo puede gastar el agente, pero sin `maxAmountPerPayment` no pone límite al monto. Cualquier servidor puede pedir cualquier cantidad en HBAR y el cliente la acepta.
+
+Recibo es un producto sobre control de gasto agéntico. Un límite de activo sin límite de monto es incoherente con esa propuesta.
+
+**Acción día 2:** añadir `maxAmountPerPayment` en tinybars al entry de HBAR. Valor sugerido: `'10000000'` (0.1 HBAR), ajustar según precio del servicio de escrow. El valor debe ser atómico (entero string), no dollar string — la librería lanza error si se pasa `"$0.1"`.
+
+### 2. Campo MEMO de la transacción vacío
+
+El MEMO de la tx de liquidación llega vacío. No está claro si el SDK de x402/hedera lo popula, si el facilitador lo descarta, o si simplemente no se configura desde el cliente.
+
+**Acción día 2:** leer el source de `ExactHederaScheme.createPaymentPayload` en `@x402/hedera` para ver si existe un campo `memo` en las opciones del signer o del scheme. Decidir si el ID del escrow va en el MEMO de la tx o solo como mensaje en HCS — no asumir, leer el SDK.

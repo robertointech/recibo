@@ -64,19 +64,15 @@ console.log('── Final response ───────────────
 console.log(JSON.stringify(body, null, 2));
 console.log('──────────────────────────────────────────────────────\n');
 
-// Decode settlement header (contains tx hash, amount, etc.)
-const settlementHeader = res.headers.get('x-payment-response');
+// Settlement header is "payment-response" (not "x-payment-response")
+const settlementHeader = res.headers.get('payment-response');
 if (settlementHeader) {
   const settlement = decodePaymentResponseHeader(settlementHeader);
+  const txId = settlement.transaction ?? settlement.txId ?? settlement.transactionId ?? JSON.stringify(settlement);
   console.log('── Settlement ────────────────────────────────────────');
-  console.log(JSON.stringify(settlement, null, 2));
+  console.log(`  Transaction ID : ${txId}`);
+  console.log(`  HashScan       : https://hashscan.io/testnet/transaction/${txId}`);
   console.log('──────────────────────────────────────────────────────\n');
 } else {
-  console.log('(no x-payment-response header — settlement may be async)');
-  // Dump all x- headers for debugging
-  for (const [k, v] of res.headers) {
-    if (k.startsWith('x-') || k.includes('payment')) {
-      console.log(`  ${k}: ${v}`);
-    }
-  }
+  console.log('(no payment-response header)');
 }
