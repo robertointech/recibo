@@ -8,7 +8,8 @@
     "create-topic": "node scripts/create-topic.js",
     "test-hcs": "node scripts/test-hcs.js",
     "create-escrow-account": "node scripts/create-escrow-account.js",
-    "test-escrow": "node scripts/test-escrow.js"
+    "test-escrow": "node scripts/test-escrow.js",
+    "dashboard": "npm --prefix web run dev"
   },
   "dependencies": {
     "@x402/core": "^2.18.0",

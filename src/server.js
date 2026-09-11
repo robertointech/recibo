@@ -4,7 +4,7 @@ import express from 'express';
 import { paymentMiddleware, x402ResourceServer } from '@x402/express';
 import { HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactHederaScheme } from '@x402/hedera/exact/server';
-import { hold, proveDelivery, release, refund, getEscrow } from './escrow.js';
+import { hold, proveDelivery, release, refund, getEscrow, getAllEscrows } from './escrow.js';
 
 const ESCROW      = process.env.ESCROW_ACCOUNT_ID;
 const RECEIVER    = process.env.RECEIVER_ACCOUNT_ID;
@@ -38,8 +38,17 @@ const routeConfig = (description) => ({
   mimeType: 'application/json',
 });
 
+const TOPIC_ID = process.env.HCS_TOPIC_ID ?? '';
+
 const app = express();
 app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 app.use(
   paymentMiddleware(
@@ -102,7 +111,15 @@ app.post('/service-flaky', async (req, res) => {
   }
 });
 
-// ── Escrow state query ─────────────────────────────────────────────────────────
+// ── Read-only endpoints for dashboard ────────────────────────────────────────
+app.get('/status', (_req, res) => {
+  res.json({ escrowAccount: ESCROW, topicId: TOPIC_ID, network: NETWORK, facilitator: FACILITATOR });
+});
+
+app.get('/escrows', (_req, res) => {
+  res.json(getAllEscrows());
+});
+
 app.get('/escrow/:id', (req, res) => {
   try {
     res.json(getEscrow(req.params.id));

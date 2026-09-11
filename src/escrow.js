@@ -190,3 +190,8 @@ export async function refund({ escrowId, reason }) {
 export function getEscrow(escrowId) {
   return getOrThrow(escrowId);
 }
+
+/** Return all escrows as an array (newest event first per entry). */
+export function getAllEscrows() {
+  return Array.from(escrows.values());
+}
