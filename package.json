@@ -6,7 +6,9 @@
     "server": "node src/server.js",
     "pay": "node src/pay.js",
     "create-topic": "node scripts/create-topic.js",
-    "test-hcs": "node scripts/test-hcs.js"
+    "test-hcs": "node scripts/test-hcs.js",
+    "create-escrow-account": "node scripts/create-escrow-account.js",
+    "test-escrow": "node scripts/test-escrow.js"
   },
   "dependencies": {
     "@x402/core": "^2.18.0",
