@@ -7,7 +7,12 @@ import { createClientHederaSigner, PrivateKey } from '@x402/hedera';
 const PAYER_ID  = process.env.PAYER_ACCOUNT_ID;
 const PAYER_KEY = process.env.PAYER_PRIVATE_KEY;
 const NETWORK   = process.env.HEDERA_NETWORK ?? 'testnet';
-const TARGET    = 'http://localhost:3333/service';
+const BASE_URL  = 'http://localhost:3333';
+
+// Accept route as CLI arg: npm run pay -- /service-flaky
+// Defaults to /service.
+const route  = process.argv[2] ?? '/service';
+const TARGET = `${BASE_URL}${route}`;
 
 if (!PAYER_ID || !PAYER_KEY) {
   console.error('Missing PAYER_ACCOUNT_ID or PAYER_PRIVATE_KEY in .env');
@@ -37,9 +42,7 @@ const signer = createClientHederaSigner(
 );
 
 // HBAR (0.0.0) is not in @x402/hedera DEFAULT_ASSETS (only USDC is).
-// Declare it explicitly so spendControls allows it.
-// maxAmountPerPayment omitted → no per-asset cap; falls back to top-level
-// maxAmountPerPayment default ($1) which doesn't apply to non-default assets.
+// Declared explicitly so spendControls allows it.
 const client = new x402Client()
   .register(`hedera:${NETWORK}`, new ExactHederaScheme(signer))
   .setSpendControls({
@@ -48,31 +51,51 @@ const client = new x402Client()
 
 const paidFetch = wrapFetchWithPayment(loggingFetch, client);
 
-console.log(`Calling ${TARGET}`);
+console.log(`\nCalling ${TARGET}`);
 console.log(`  Payer   : ${PAYER_ID}`);
 console.log(`  Network : hedera:${NETWORK}\n`);
 
 const res = await paidFetch(TARGET, {
   method:  'POST',
   headers: { 'Content-Type': 'application/json' },
-  body:    JSON.stringify({ hello: 'recibo' }),
+  body:    JSON.stringify({ payer: PAYER_ID }),
 });
 
 const body = await res.json();
 
-console.log('── Final response ────────────────────────────────────');
+console.log('── Server response ───────────────────────────────────');
 console.log(JSON.stringify(body, null, 2));
 console.log('──────────────────────────────────────────────────────\n');
 
-// Settlement header is "payment-response" (not "x-payment-response")
+// Settlement header
 const settlementHeader = res.headers.get('payment-response');
 if (settlementHeader) {
   const settlement = decodePaymentResponseHeader(settlementHeader);
   const txId = settlement.transaction ?? settlement.txId ?? settlement.transactionId ?? JSON.stringify(settlement);
-  console.log('── Settlement ────────────────────────────────────────');
+  console.log('── x402 Settlement ───────────────────────────────────');
   console.log(`  Transaction ID : ${txId}`);
   console.log(`  HashScan       : https://hashscan.io/testnet/transaction/${txId}`);
   console.log('──────────────────────────────────────────────────────\n');
-} else {
-  console.log('(no payment-response header)');
+}
+
+// Fetch and print full escrow history if server returned an escrowId
+const escrowId = body.escrowId;
+if (escrowId) {
+  const escrowRes = await fetch(`${BASE_URL}/escrow/${escrowId}`);
+  const escrow    = await escrowRes.json();
+
+  console.log('── Escrow history ────────────────────────────────────');
+  console.log(`  escrowId : ${escrow.escrowId}`);
+  console.log(`  state    : ${escrow.state}`);
+  if (escrow.responseHash) {
+    console.log(`  sha256   : ${escrow.responseHash}`);
+  }
+  console.log('  events:');
+  for (const ev of escrow.events) {
+    console.log(`    [seq ${ev.sequenceNumber}] ${ev.type} — ${ev.consensusTimestamp}`);
+    if (ev.transactionId) {
+      console.log(`      tx: https://hashscan.io/testnet/transaction/${ev.transactionId}`);
+    }
+  }
+  console.log('──────────────────────────────────────────────────────\n');
 }
