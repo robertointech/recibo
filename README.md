@@ -153,3 +153,9 @@ The x402 client configures `allowedAssets: [{ asset: '0.0.0', network: 'hedera:t
 - **Persistence**: replace the in-memory Map with Postgres or a serialized flat file so escrow state survives restarts.
 - **Automatic timeout**: release a refund automatically if `proveDelivery` is not called within N seconds of `hold`.
 - **Per-agent spend cap**: enforce `maxAmountPerPayment` in tinybars so the agent has a hard ceiling on what any single payment can take.
+
+---
+
+## AI Usage
+
+This project was built with Claude Code (Sonnet 4.6) for implementation and Claude chat for session planning and scope definition. [`AI-USAGE.md`](./AI-USAGE.md) documents the full methodology: how work was scoped, what constraints were set by the human, what the AI wrote versus what it did not, and how each block was verified on-chain before advancing.
