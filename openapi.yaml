@@ -1,0 +1,283 @@
+openapi: 3.1.0
+
+info:
+  title: Recibo API
+  version: 0.1.0
+  description: |
+    Recibo is an escrow and delivery-proof layer for x402 agent payments on Hedera.
+
+    When an AI agent pays a service via x402, funds are held in an escrow account
+    rather than sent directly to the provider. The provider must prove delivery by
+    anchoring a sha256 hash of the response body on Hedera Consensus Service (HCS).
+    Only then are funds released. If the provider fails to deliver, the payer is
+    refunded automatically.
+
+    Every state transition is anchored as an immutable message on HCS topic
+    0.0.10485281 (Hedera testnet). The full audit trail is publicly verifiable at
+    https://hashscan.io/testnet/topic/0.0.10485281 without trusting this server.
+
+    This API exposes read-only endpoints for querying escrow state and history.
+    Payment endpoints (POST /service, POST /service-flaky) require x402 and are
+    not included here.
+
+servers:
+  - url: https://realtors-catch-aspect-vincent.trycloudflare.com
+    description: Recibo testnet server
+
+paths:
+  /escrows:
+    get:
+      operationId: listEscrows
+      summary: List all escrows
+      description: |
+        Returns all escrows in memory, sorted by creation time (newest first in
+        the dashboard; order from this endpoint reflects insertion order).
+
+        Each escrow captures a single payment cycle from HELD through either
+        RELEASED (provider delivered) or REFUNDED (provider failed). Query this
+        endpoint to audit what an agent has paid, what was delivered, and what
+        was reversed.
+      responses:
+        '200':
+          description: Array of escrow objects, each with full event history.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Escrow'
+              examples:
+                released:
+                  summary: Happy path — provider delivered, funds released
+                  value:
+                    - escrowId: "3f2a1b4c-8d9e-4f0a-b1c2-d3e4f5a6b7c8"
+                      payer: "0.0.10448866"
+                      provider: "0.0.10448873"
+                      amount: 0.001
+                      state: "RELEASED"
+                      responseHash: "a3f1d2e4b5c6789012345678901234567890abcdef1234567890abcdef123456"
+                      events:
+                        - type: "HELD"
+                          topicId: "0.0.10485281"
+                          sequenceNumber: "7"
+                          consensusTimestamp: "2026-09-11T18:42:10.123Z"
+                          transactionId: "0.0.10448866@1789167000.000000001"
+                        - type: "DELIVERED"
+                          topicId: "0.0.10485281"
+                          sequenceNumber: "8"
+                          consensusTimestamp: "2026-09-11T18:42:11.456Z"
+                          transactionId: "0.0.10448866@1789167001.000000002"
+                        - type: "RELEASED"
+                          topicId: "0.0.10485281"
+                          sequenceNumber: "9"
+                          consensusTimestamp: "2026-09-11T18:42:14.789Z"
+                          transactionId: "0.0.10448873@1789167004.000000003"
+                refunded:
+                  summary: Sad path — provider failed, payer refunded
+                  value:
+                    - escrowId: "7c8b9a0d-1e2f-3a4b-5c6d-7e8f9a0b1c2d"
+                      payer: "0.0.10448866"
+                      provider: "0.0.10448873"
+                      amount: 0.001
+                      state: "REFUNDED"
+                      responseHash: null
+                      refundReason: "provider failed to respond"
+                      events:
+                        - type: "HELD"
+                          topicId: "0.0.10485281"
+                          sequenceNumber: "10"
+                          consensusTimestamp: "2026-09-11T18:45:02.100Z"
+                          transactionId: "0.0.10448866@1789167302.000000001"
+                        - type: "REFUNDED"
+                          topicId: "0.0.10485281"
+                          sequenceNumber: "11"
+                          consensusTimestamp: "2026-09-11T18:45:05.321Z"
+                          transactionId: "0.0.10486724@1789167305.000000002"
+                          reason: "provider failed to respond"
+
+  /escrow/{id}:
+    get:
+      operationId: getEscrow
+      summary: Get a single escrow by ID
+      description: |
+        Returns the full state and event history for one escrow.
+
+        Use this to verify the outcome of a specific payment: whether funds were
+        released to the provider (state RELEASED), returned to the payer (state
+        REFUNDED), or are still in transit (state HELD or DELIVERED).
+
+        The events array is the authoritative record. Each event has a
+        sequenceNumber assigned by HCS — this is the canonical ordering of
+        what happened, not the local server clock. All events are immutably
+        recorded on-chain and can be independently verified.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID assigned to the escrow at creation (returned in the x402 payment response body as `escrowId`).
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Escrow found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Escrow'
+        '404':
+          description: Escrow not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /status:
+    get:
+      operationId: getStatus
+      summary: Server configuration
+      description: Returns the server's Hedera account IDs and network configuration. Useful for verifying which escrow account is holding funds and which HCS topic is the audit log.
+      responses:
+        '200':
+          description: Server configuration.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [escrowAccount, topicId, network, facilitator]
+                properties:
+                  escrowAccount:
+                    type: string
+                    description: Hedera account ID currently holding escrowed HBAR. Funds in HELD or DELIVERED state sit at this address.
+                    example: "0.0.10486724"
+                  topicId:
+                    type: string
+                    description: HCS topic ID where all escrow events are anchored. Publicly readable at hashscan.io/testnet/topic/{topicId}.
+                    example: "0.0.10485281"
+                  network:
+                    type: string
+                    enum: [testnet, mainnet]
+                    example: "testnet"
+                  facilitator:
+                    type: string
+                    description: x402 facilitator URL used for payment verification and settlement.
+                    example: "https://api.testnet.blocky402.com"
+
+components:
+  schemas:
+    Escrow:
+      type: object
+      required: [escrowId, payer, provider, amount, state, responseHash, events]
+      properties:
+        escrowId:
+          type: string
+          format: uuid
+          description: Unique identifier for this escrow cycle. Assigned at payment time and included in the x402 response body.
+          example: "3f2a1b4c-8d9e-4f0a-b1c2-d3e4f5a6b7c8"
+        payer:
+          type: string
+          description: Hedera account ID of the agent that made the payment. HBAR is returned here on refund.
+          example: "0.0.10448866"
+        provider:
+          type: string
+          description: Hedera account ID of the service provider. HBAR is transferred here on successful delivery.
+          example: "0.0.10448873"
+        amount:
+          type: number
+          description: Amount held in escrow, in HBAR.
+          example: 0.001
+        state:
+          type: string
+          enum: [HELD, DELIVERED, RELEASED, REFUNDED]
+          description: |
+            Current state of the escrow. Transitions are one-way:
+
+            - **HELD**: Payment received, funds locked in escrow. Provider has not yet proven delivery.
+            - **DELIVERED**: Provider submitted a sha256 proof of the response body. Funds not yet transferred.
+            - **RELEASED**: Delivery was proven and funds transferred to the provider. Terminal state — payment complete.
+            - **REFUNDED**: Provider failed to deliver and funds were returned to the payer. Terminal state — payment reversed.
+
+            An agent auditing its spending should treat RELEASED as confirmed spend and
+            REFUNDED as recovered funds. HELD or DELIVERED states indicate an in-flight
+            transaction that has not yet settled.
+          example: "RELEASED"
+        responseHash:
+          type: [string, "null"]
+          description: |
+            SHA-256 hash (hex) of the raw response body returned by the provider.
+            Anchored on HCS at the DELIVERED event.
+
+            This is the delivery proof: if this field is non-null, it means the provider
+            returned a response body and its hash was committed to an immutable public
+            ledger before funds were released. The hash can be independently verified by
+            recomputing sha256 over the response body received by the payer.
+
+            **Null means no delivery proof exists.** For REFUNDED escrows, null is expected
+            and correct — the provider did not deliver, so there is no hash to record.
+            For RELEASED escrows, a null responseHash should be treated as an anomaly.
+          example: "a3f1d2e4b5c6789012345678901234567890abcdef1234567890abcdef123456"
+        refundReason:
+          type: string
+          description: Human-readable reason for the refund. Only present when state is REFUNDED.
+          example: "provider failed to respond"
+        events:
+          type: array
+          description: |
+            Ordered list of state transitions, each anchored as an immutable message on
+            Hedera Consensus Service. The sequenceNumber field is assigned by HCS and
+            represents the canonical order of events — it is not a local counter and
+            cannot be forged or reordered.
+
+            Every event in this array has a corresponding on-chain message at
+            hashscan.io/testnet/topic/{topicId} that can be read without trusting this server.
+          items:
+            $ref: '#/components/schemas/HCSEvent'
+
+    HCSEvent:
+      type: object
+      required: [type, topicId, sequenceNumber, consensusTimestamp, transactionId]
+      properties:
+        type:
+          type: string
+          enum: [HELD, DELIVERED, RELEASED, REFUNDED]
+          description: The escrow state transition this event records.
+          example: "RELEASED"
+        topicId:
+          type: string
+          description: Hedera Consensus Service topic ID where this message was anchored.
+          example: "0.0.10485281"
+        sequenceNumber:
+          type: string
+          description: |
+            HCS sequence number for this message within the topic. Assigned by the Hedera
+            network, monotonically increasing, globally consistent. This is the canonical
+            ordering of events — use this, not consensusTimestamp, when establishing the
+            order in which state transitions occurred.
+          example: "9"
+        consensusTimestamp:
+          type: string
+          format: date-time
+          description: |
+            ISO 8601 timestamp at which Hedera reached consensus on this message.
+            Derived from TransactionRecord (not TransactionReceipt) — this is the real
+            network consensus time, not a local server clock.
+          example: "2026-09-11T18:42:14.789Z"
+        transactionId:
+          type: string
+          description: |
+            Hedera transaction ID for the HCS submission that anchored this event.
+            Format: {accountId}@{seconds}.{nanos}. Use this to look up the full
+            transaction on HashScan: hashscan.io/testnet/transaction/{transactionId}.
+          example: "0.0.10448873@1789167004.000000003"
+        reason:
+          type: string
+          description: Refund reason. Only present on REFUNDED events.
+          example: "provider failed to respond"
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: "Escrow not found: 3f2a1b4c-8d9e-4f0a-b1c2-d3e4f5a6b7c8"
