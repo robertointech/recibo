@@ -176,8 +176,9 @@ export async function refund({ escrowId, reason }) {
     ts:            new Date().toISOString(),
   });
 
-  e.state = 'REFUNDED';
-  e.events.push({ ...hcsResult, type: 'REFUNDED', transactionId });
+  e.state        = 'REFUNDED';
+  e.refundReason = reason;
+  e.events.push({ ...hcsResult, type: 'REFUNDED', transactionId, reason });
 
   return { ...e };
 }

@@ -22,6 +22,7 @@ interface Escrow {
   amount: number;
   state: EscrowState;
   responseHash: string | null;
+  refundReason?: string;
   events: HCSEvent[];
 }
 
@@ -82,6 +83,9 @@ function EscrowCard({ e }: { e: Escrow }) {
         <div className="flex items-center gap-3 min-w-0">
           <span className="font-mono text-xs text-zinc-400 shrink-0">{short(e.escrowId)}</span>
           <Badge state={e.state} />
+          {e.state === 'REFUNDED' && e.refundReason && (
+            <span className="font-mono text-xs text-rose-400/70 truncate">{e.refundReason}</span>
+          )}
         </div>
         <span className="font-mono text-sm text-zinc-100 shrink-0 ml-4">{e.amount} HBAR</span>
       </div>
@@ -104,6 +108,11 @@ function EscrowCard({ e }: { e: Escrow }) {
               {e.responseHash && ev.type === 'DELIVERED' && (
                 <span className="font-mono text-zinc-500 truncate">
                   sha256:{e.responseHash.slice(0, 20)}…
+                </span>
+              )}
+              {e.state === 'REFUNDED' && ev.type === 'REFUNDED' && (
+                <span className="font-mono text-zinc-700 italic">
+                  no delivery proof — payment reversed
                 </span>
               )}
               {ev.transactionId && (
@@ -174,6 +183,11 @@ export default function Page() {
                   </ExternalLink>
                 </span>
                 <span className="font-mono text-xs text-zinc-600">{status.network}</span>
+                <span className="text-xs text-zinc-600">
+                  gas sponsored by{' '}
+                  <span className="font-mono text-zinc-500">0.0.7162784</span>
+                  <span className="text-zinc-700"> (Blocky402)</span>
+                </span>
               </>
             )}
           </div>
